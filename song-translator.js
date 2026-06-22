@@ -1,6 +1,6 @@
 // @key-title Song Title Romanizer & Translator
-// @description Romanizes & translates player bar song names (stacked lines).
-// @author Your Name
+// @description Romanizes & translates player bar song names (stacked lines, synchronized scroll).
+// @spectatehaze
 
 (function SongTranslatorAndRomanizer() {
   if (!Spicetify.Player || !Spicetify.Platform) {
@@ -10,20 +10,31 @@
 
   const TARGET_LANG = 'en'; // Target translation language
   const CACHE_KEY = 'spicetify-song-meta-cache';
+
+  // 1. Inject the marquee keyframes style tag once
+  const style = document.createElement('style');
+  style.innerHTML = `
+    @keyframes spicetify-marquee {
+      0% { transform: translateX(0); }
+      8% { transform: translateX(0); }
+      92% { transform: translateX(var(--scroll-amount)); }
+      100% { transform: translateX(var(--scroll-amount)); }
+    }
+  `;
+  document.head.appendChild(style);
   
-  // 1. Initialize the persistent metadata cache
+  // 2. Initialize the persistent metadata cache
   let metaCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
   function saveCache() {
     localStorage.setItem(CACHE_KEY, JSON.stringify(metaCache));
   }
 
-  // 2. Fetch both Translation and Romanization in a single query
+  // 3. Fetch both Translation and Romanization in a single query
   async function fetchSongMeta(text) {
     if (metaCache[text]) {
       return metaCache[text];
     }
 
-    // dt=t (translation) & dt=rm (romanization) combined with dj=1 (key-value JSON)
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${TARGET_LANG}&dt=t&dt=rm&dj=1&q=${encodeURIComponent(text)}`;
     try {
       const response = await fetch(url);
@@ -59,7 +70,7 @@
   }
 
   // ----------------------------------------------------
-  // NOW PLAYING BAR (Stacked Subtitles)
+  // NOW PLAYING BAR (Synchronized Subtitles)
   // ----------------------------------------------------
   async function updateNowPlaying() {
     const trackInfo = document.querySelector('.main-nowPlayingWidget-trackInfo');
@@ -73,50 +84,89 @@
 
     const originalTitle = currentTrack.name;
 
-    // Create separate subtitle elements for stacked lines
+    // Create the master wrapper and synchronized track if they don't exist
+    let wrapperEl = document.getElementById('spicetify-subtitles-wrapper');
+    let trackEl = document.getElementById('spicetify-subtitles-track');
     let romanizedEl = document.getElementById('spicetify-player-romanized');
     let translatedEl = document.getElementById('spicetify-player-translated');
 
-    if (!romanizedEl) {
+    if (!wrapperEl) {
+      wrapperEl = document.createElement('div');
+      wrapperEl.id = 'spicetify-subtitles-wrapper';
+      wrapperEl.style.width = '100%';
+      wrapperEl.style.overflow = 'hidden';
+      
+      trackEl = document.createElement('div');
+      trackEl.id = 'spicetify-subtitles-track';
+      trackEl.style.display = 'flex';
+      trackEl.style.flexDirection = 'column';
+      trackEl.style.width = 'max-content'; // Shrinks/grows to fit the widest line
+
       romanizedEl = document.createElement('div');
       romanizedEl.id = 'spicetify-player-romanized';
       romanizedEl.style.fontSize = '0.75rem';
-      romanizedEl.style.color = '#b3b3b3'; // Matches standard Spotify artist name color
+      romanizedEl.style.color = '#b3b3b3'; // Matches standard Spotify artist color
       romanizedEl.style.marginTop = '2px';
       romanizedEl.style.whiteSpace = 'nowrap';
-      romanizedEl.style.overflow = 'hidden';
-      romanizedEl.style.textOverflow = 'ellipsis';
-      trackInfo.appendChild(romanizedEl);
-    }
 
-    if (!translatedEl) {
       translatedEl = document.createElement('div');
       translatedEl.id = 'spicetify-player-translated';
       translatedEl.style.fontSize = '0.70rem';
       translatedEl.style.color = '#727272'; // Dimmer grey for hierarchy
       translatedEl.style.marginTop = '1px';
       translatedEl.style.whiteSpace = 'nowrap';
-      translatedEl.style.overflow = 'hidden';
-      translatedEl.style.textOverflow = 'ellipsis';
-      trackInfo.appendChild(translatedEl);
+
+      trackEl.appendChild(romanizedEl);
+      trackEl.appendChild(translatedEl);
+      wrapperEl.appendChild(trackEl);
+      trackInfo.appendChild(wrapperEl);
     }
 
-    // Reset display
+    // Reset styles and values
+    trackEl.style.animation = 'none';
+    trackEl.style.transform = 'translateX(0)';
+    
     romanizedEl.textContent = '';
     romanizedEl.style.display = 'none';
     translatedEl.textContent = '';
     translatedEl.style.display = 'none';
+    wrapperEl.style.display = 'none';
 
     // Get metadata (fetches or returns cached)
     const meta = await fetchSongMeta(originalTitle);
 
+    let hasContent = false;
     if (meta.r) {
       romanizedEl.textContent = meta.r;
       romanizedEl.style.display = 'block';
+      hasContent = true;
     }
     if (meta.t) {
       translatedEl.textContent = meta.t;
       translatedEl.style.display = 'block';
+      hasContent = true;
+    }
+
+    if (hasContent) {
+      wrapperEl.style.display = 'block';
+
+      // Wait a frame for Spicetify to calculate container widths
+      setTimeout(() => {
+        const containerWidth = wrapperEl.clientWidth;
+        const trackWidth = trackEl.offsetWidth;
+
+        if (trackWidth > containerWidth) {
+          // Calculate scroll distance (with 15px safety buffer at the end)
+          const scrollAmt = trackWidth - containerWidth + 15;
+          trackEl.style.setProperty('--scroll-amount', `-${scrollAmt}px`);
+          
+          // Calculate duration proportional to the scroll distance (~25px per second)
+          const duration = Math.max(5, Math.round(scrollAmt / 25));
+          
+          // Apply animation to the entire track containing both lines
+          trackEl.style.animation = `spicetify-marquee ${duration}s ease-in-out infinite alternate`;
+        }
+      }, 50);
     }
   }
 
