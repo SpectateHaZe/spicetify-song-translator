@@ -1,5 +1,5 @@
 // @key-title Song Title Romanizer & Translator
-// @description Romanizes & translates player bar song names (stacked lines, synchronized scroll).
+// @description Romanizes & translates player bar song names (stacked, synced, with ASCII filter).
 // @spectatehaze
 
 (function SongTranslatorAndRomanizer() {
@@ -10,6 +10,14 @@
 
   const TARGET_LANG = 'en'; // Target translation language
   const CACHE_KEY = 'spicetify-song-meta-cache';
+
+  // Regex to detect foreign scripts (Japanese, Chinese, Korean, Cyrillic, Greek, Arabic, Hebrew, Hindi, Thai)
+  const FOREIGN_SCRIPT_REGEX = /[\u3040-\u30FF\u4E00-\u9FFF\uFF00-\uFFEF\uAC00-\uD7AF\u1100-\u11FF\u0400-\u04FF\u0370-\u03FF\u0600-\u06FF\u0590-\u05FF\u0900-\u097F\u0E00-\u0E7F]/;
+
+  // Helper to check if a title actually needs translation/romanization
+  function needsProcessing(text) {
+    return FOREIGN_SCRIPT_REGEX.test(text);
+  }
 
   // 1. Inject the marquee keyframes style tag once
   const style = document.createElement('style');
@@ -31,6 +39,11 @@
 
   // 3. Fetch both Translation and Romanization in a single query
   async function fetchSongMeta(text) {
+    // If the text is already standard Latin/ASCII, skip the API call immediately
+    if (!needsProcessing(text)) {
+      return { t: null, r: null };
+    }
+
     if (metaCache[text]) {
       return metaCache[text];
     }
@@ -67,6 +80,39 @@
       console.error(`Failed to fetch metadata for "${text}":`, error);
     }
     return { t: null, r: null };
+  }
+
+  // Helper to handle text updates and determine if a scrolling marquee is needed
+  function setTextAndMarquee(container, text) {
+    const span = container.querySelector('.spicetify-marquee-text');
+    span.textContent = text;
+    
+    // Reset properties before calculating
+    span.style.animation = 'none';
+    span.style.transform = 'translateX(0)';
+    container.style.textOverflow = 'ellipsis';
+    container.style.display = 'block';
+
+    // Wait a brief frame for Spotify to render container widths
+    setTimeout(() => {
+      const containerWidth = container.clientWidth;
+      const textWidth = span.offsetWidth;
+
+      if (textWidth > containerWidth) {
+        // Hide standard ellipsis dots during animation
+        container.style.textOverflow = 'clip';
+        
+        // Calculate dynamic translation amount (+15px extra breathing room at the end)
+        const scrollAmt = textWidth - containerWidth + 15;
+        span.style.setProperty('--scroll-amount', `-${scrollAmt}px`);
+        
+        // Calculate uniform duration based on text length (~25px scroll distance per second)
+        const duration = Math.max(5, Math.round(scrollAmt / 25));
+        
+        // Apply back-and-forth alternate animation
+        span.style.animation = `spicetify-marquee ${duration}s ease-in-out infinite alternate`;
+      }
+    }, 50);
   }
 
   // ----------------------------------------------------
