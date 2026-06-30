@@ -1,6 +1,6 @@
 {
   "name": "Song Title Romanizer & Translator",
-  "description": "Romanizes & translates song titles in the now playing bar.",
+  "description": "Romanizes & translates song titles in the UI.",
   "preview": "preview.png",
   "main": "song-translator.js",
   "readme": "README.md"
